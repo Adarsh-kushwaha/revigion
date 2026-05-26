@@ -1,0 +1,45 @@
+-- =============================================================================
+-- pg_cron scheduled job for notification-dispatcher Edge Function
+-- =============================================================================
+--
+-- PREREQUISITES (one-time setup in Supabase Dashboard):
+--   1. Go to Database → Extensions and enable:
+--        - pg_cron
+--        - pg_net
+--
+-- HOW TO SCHEDULE (run in Supabase SQL Editor after enabling the extensions):
+--
+--   Replace <SUPABASE_ANON_KEY> with the anon key from
+--   Project Settings → API → Project API keys.
+--
+--   select cron.schedule(
+--     'notify-dispatcher',           -- unique job name
+--     '0 * * * *',                   -- every hour on the hour
+--     $$
+--       select net.http_post(
+--         url     := 'https://aoymkicpvtnfmbspepqn.supabase.co/functions/v1/notification-dispatcher',
+--         headers := '{"Authorization": "Bearer <SUPABASE_ANON_KEY>", "Content-Type": "application/json"}'::jsonb,
+--         body    := '{}'::jsonb
+--       );
+--     $$
+--   );
+--
+-- NOTES:
+--   - The Edge Function filters internally: only users whose local hour is in
+--     {8, 12, 16, 20} will receive a notification, so running every hour is safe.
+--   - Delivery is idempotent: the notifications_sent table prevents double-sends
+--     for the same (revision_id, slot_at) pair.
+--   - To remove the schedule:
+--       select cron.unschedule('notify-dispatcher');
+--   - To view scheduled jobs:
+--       select * from cron.job;
+--   - To view recent run history:
+--       select * from cron.job_run_details order by start_time desc limit 20;
+--
+-- =============================================================================
+--
+-- The body of this file is intentionally left as comments only.
+-- The actual schedule must be created interactively via SQL Editor so that
+-- the anon key is never committed to version control.
+--
+-- =============================================================================
