@@ -117,6 +117,18 @@
   --sidebar-ring: oklch(0.547 0.021 43.1);
 }
 
+@keyframes sk-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.sk {
+  background: linear-gradient(90deg, #EBEBEB 25%, #F5F5F1 50%, #EBEBEB 75%);
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

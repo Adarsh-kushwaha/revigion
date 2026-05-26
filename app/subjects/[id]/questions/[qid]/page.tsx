@@ -69,6 +69,8 @@ export default async function QuestionPage({ params }: PageProps) {
     .filter((r) => r.completed_at !== null)
     .sort((a, b) => a.index - b.index);
 
+  const allRevisions = [...revs].sort((a, b) => a.index - b.index);
+
   return (
     <div className="min-h-screen flex flex-col items-center" style={{ backgroundColor: '#FAFAF6' }}>
       <div className="w-full max-w-[430px] flex flex-col flex-1">
@@ -111,6 +113,7 @@ export default async function QuestionPage({ params }: PageProps) {
             state={state}
             nextRevisionId={nextPendingRevision?.id ?? null}
             completedRevisions={completedRevisions}
+            allRevisions={allRevisions}
           />
         </main>
       </div>
