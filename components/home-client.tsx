@@ -26,9 +26,26 @@ interface HomeClientProps {
 
 // ─── Notification Banner ─────────────────────────────────────────────────────
 
+async function sendWelcomeNotification() {
+  if (localStorage.getItem('welcome_notif_sent') === '1') return;
+  localStorage.setItem('welcome_notif_sent', '1');
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    await reg.showNotification('Welcome to Revigion! 🎉', {
+      body: "You're all set. We'll remind you when revisions are due.",
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+    });
+  } catch {
+    new Notification('Welcome to Revigion! 🎉', {
+      body: "You're all set. We'll remind you when revisions are due.",
+      icon: '/icons/icon-192.png',
+    });
+  }
+}
+
 function NotificationBanner() {
   const [visible, setVisible] = useState(false);
-  const [granted, setGranted] = useState(false);
   const [isIos, setIsIos] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [showIosPopover, setShowIosPopover] = useState(false);
@@ -41,7 +58,6 @@ function NotificationBanner() {
     const dismissed = sessionStorage.getItem('notif_dismissed') === '1';
     const alreadyGranted = Notification.permission === 'granted';
 
-    setGranted(alreadyGranted);
     setVisible(!dismissed && !alreadyGranted && 'Notification' in window);
 
     const ua = navigator.userAgent;
@@ -51,10 +67,9 @@ function NotificationBanner() {
     setIsIos(ios);
     setIsStandalone(standalone);
 
-    // When user installs the PWA and notification is already granted, fire test notification
     function handleAppInstalled() {
       if (Notification.permission === 'granted') {
-        sendTestNotification();
+        sendWelcomeNotification();
       }
     }
     window.addEventListener('appinstalled', handleAppInstalled);
@@ -73,47 +88,6 @@ function NotificationBanner() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showIosPopover]);
 
-  async function sendTestNotification() {
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification('Revigion', {
-        body: 'Notifications are working!',
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-192.png',
-      });
-    } catch {
-      // SW showNotification unavailable — fall back to Notification API
-      new Notification('Revigion', {
-        body: 'Notifications are working!',
-        icon: '/icons/icon-192.png',
-      });
-    }
-  }
-
-  function handleTest() {
-    if (Notification.permission !== 'granted') {
-      alert('Permission not granted yet.');
-      return;
-    }
-    sendTestNotification();
-  }
-
-  if (granted) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-        <button
-          onClick={handleTest}
-          style={{
-            fontSize: '12px', color: '#FFFFFF', background: '#111110', border: 'none',
-            borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontWeight: 500,
-          }}
-        >
-          Test notification
-        </button>
-      </div>
-    );
-  }
-
   if (!visible) return null;
 
   function dismiss() {
@@ -126,12 +100,8 @@ function NotificationBanner() {
     try {
       const token = await requestAndRegisterToken();
       if (token || Notification.permission === 'granted') {
-        setGranted(true);
         setVisible(false);
-        // Auto-fire test notification when enabling from PWA home screen
-        if (isStandalone) {
-          sendTestNotification();
-        }
+        sendWelcomeNotification();
       }
     } finally {
       setEnabling(false);
