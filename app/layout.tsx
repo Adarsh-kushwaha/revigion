@@ -64,37 +64,37 @@ export default function RootLayout({
           #app-loader {
             position: fixed;
             inset: 0;
-            background: #fff;
+            background: #FFEF9D;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 16px;
+            gap: 20px;
             z-index: 9999;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.35s ease;
           }
-          #app-loader-spinner {
-            width: 36px;
-            height: 36px;
-            border: 3px solid #e5e0da;
-            border-top-color: #3a2e28;
-            border-radius: 50%;
-            animation: app-spin 0.75s linear infinite;
+          #app-loader-name {
+            font-family: Georgia, 'Times New Roman', serif;
+            font-size: 28px;
+            font-weight: 700;
+            color: #111110;
+            letter-spacing: -0.02em;
           }
-          #app-loader-text {
-            font-family: system-ui, sans-serif;
-            font-size: 15px;
-            font-weight: 500;
-            color: #3a2e28;
-            letter-spacing: 0.02em;
-          }
-          @keyframes app-spin {
-            to { transform: rotate(360deg); }
+          #app-loader-motto {
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 13px;
+            font-weight: 400;
+            color: #3a3a35;
+            letter-spacing: 0.01em;
           }
         ` }} />
         <div id="app-loader">
-          <div id="app-loader-spinner" />
-          <span id="app-loader-text">Revigion</span>
+          <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="80" height="80" rx="17" fill="#111110"/>
+            <text x="40" y="58" textAnchor="middle" fontFamily="ui-monospace, monospace" fontWeight="700" fontSize="54" fill="#FFEF9D">R</text>
+          </svg>
+          <span id="app-loader-name">Revigion</span>
+          <span id="app-loader-motto">Spaced-repetition revision tracker</span>
         </div>
         <AppLoaderRemover />
         <ServiceWorkerRegistration />

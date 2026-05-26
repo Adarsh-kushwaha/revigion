@@ -227,7 +227,7 @@ export function QuestionDetailClient({
           <h2 className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: '#9C9B95', fontFamily: 'var(--font-geist-mono)' }}>
             Revision Timeline
           </h2>
-          <div className="relative pl-1">
+          <div className="relative">
             {/* vertical spine */}
             <div
               className="absolute top-2 bottom-2"
@@ -247,7 +247,7 @@ export function QuestionDetailClient({
                 return (
                   <div key={r.id} className="flex items-start gap-3.5" style={{ paddingBottom: isLast ? 0 : '20px' }}>
                     {/* node */}
-                    <div className="relative z-10 mt-0.5 flex-shrink-0 flex items-center justify-center" style={{ width: '15px', height: '15px' }}>
+                    <div className="relative z-10 mt-0.5 flex-shrink-0 flex items-center justify-center" style={{ width: '14px', height: '14px' }}>
                       {isDone ? (
                         <div
                           className="w-3.5 h-3.5 rounded-full flex items-center justify-center"
