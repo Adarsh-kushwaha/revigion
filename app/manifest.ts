@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'Spaced-repetition revision tracker',
     start_url: '/',
     display: 'standalone',
-    background_color: '#FAFAF6',
+    background_color: '#FFEF9D',
     theme_color: '#111110',
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
