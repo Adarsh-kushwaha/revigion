@@ -252,10 +252,11 @@ function NotificationBanner() {
 interface HomeClientProps {
   userId: string;
   email: string;
+  initialSubjects?: SubjectData[];
 }
 
-export function HomeClient({ userId, email }: HomeClientProps) {
-  const [subjects, setSubjects] = useState<SubjectData[]>([]);
+export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) {
+  const [subjects, setSubjects] = useState<SubjectData[]>(initialSubjects ?? []);
   const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [subjectName, setSubjectName] = useState('');
@@ -273,6 +274,11 @@ export function HomeClient({ userId, email }: HomeClientProps) {
   }, [userId]);
 
   useEffect(() => {
+    if (initialSubjects) {
+      writeCache(userId, initialSubjects);
+      window.dispatchEvent(new Event('app-ready'));
+      return;
+    }
     const cached = readCache(userId);
     if (cached) {
       setSubjects(cached.subjects);
@@ -282,7 +288,7 @@ export function HomeClient({ userId, email }: HomeClientProps) {
         window.dispatchEvent(new Event('app-ready'));
       });
     }
-  }, [userId, fetchAndCache]);
+  }, [userId, fetchAndCache, initialSubjects]);
 
   async function handleRefresh() {
     setRefreshing(true);

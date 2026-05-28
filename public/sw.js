@@ -1,4 +1,4 @@
-const CACHE = 'revigion-static-v2';
+const CACHE = 'revigion-static-v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -33,11 +33,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for immutable static assets (JS, CSS, fonts, icons, splash PNGs)
+  // Cache-first for immutable static assets (JS, CSS, fonts, icons)
   const isStatic =
     url.pathname.startsWith('/_next/static/') ||
-    url.pathname.startsWith('/icons/') ||
-    url.pathname.startsWith('/splash/');
+    url.pathname.startsWith('/icons/');
 
   if (isStatic) {
     event.respondWith(
