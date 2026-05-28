@@ -4,6 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 import { AppLoaderRemover } from "@/components/app-loader-remover";
+import { ToastProvider } from "@/components/toast";
 
 const playfairDisplayHeading = Playfair_Display({
   subsets: ["latin"],
@@ -100,7 +101,7 @@ export default function RootLayout({
         </div>
         <AppLoaderRemover />
         <ServiceWorkerRegistration />
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

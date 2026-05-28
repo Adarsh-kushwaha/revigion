@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useTransition } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/modal';
-import { deleteQuestion } from '@/app/actions';
 import type { QuestionState } from '@/lib/question-state';
 
 interface Revision {
@@ -18,6 +17,7 @@ interface QuestionCardProps {
   createdAt: string;
   revisions: Revision[];
   state: QuestionState;
+  onDelete: (id: string) => void | Promise<void>;
 }
 
 const stateStyles: Record<QuestionState, { bg: string; border: string }> = {
@@ -45,11 +45,11 @@ export function QuestionCard({
   createdAt,
   revisions,
   state,
+  onDelete,
 }: QuestionCardProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,11 +68,9 @@ export function QuestionCard({
     router.push(`/subjects/${subjectId}/questions/${id}`);
   }
 
-  async function handleDelete() {
-    startTransition(async () => {
-      await deleteQuestion(id);
-      setDeleteOpen(false);
-    });
+  function handleDelete() {
+    setDeleteOpen(false);
+    void onDelete(id);
   }
 
   const trimTitle = title.length > 20 ? title.slice(0, 20) + '…' : title;
@@ -190,11 +188,10 @@ export function QuestionCard({
           </p>
           <button
             onClick={handleDelete}
-            disabled={isPending}
             className="w-full rounded-lg py-2 text-sm font-medium"
-            style={{ backgroundColor: 'oklch(0.577 0.245 27.325)', color: '#FFFFFF', opacity: isPending ? 0.6 : 1 }}
+            style={{ backgroundColor: 'oklch(0.577 0.245 27.325)', color: '#FFFFFF' }}
           >
-            {isPending ? 'Deleting…' : 'Delete'}
+            Delete
           </button>
           <button
             onClick={() => setDeleteOpen(false)}

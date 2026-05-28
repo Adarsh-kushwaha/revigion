@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useTransition, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateQuestion, completeRevision } from '@/app/actions';
+import { useToast } from '@/components/toast';
 import type { QuestionState } from '@/lib/question-state';
 
 interface Revision {
@@ -50,14 +51,14 @@ export function QuestionDetailClient({
   const [description, setDescription] = useState(initialDescription);
   const [isDirty, setIsDirty] = useState(false);
   const descRef = useRef<HTMLTextAreaElement>(null);
+  const savedRef = useRef({ title: initialTitle, linkUrl: initialLinkUrl, description: initialDescription });
+  const toast = useToast();
 
   useEffect(() => {
     if (!descRef.current) return;
     descRef.current.style.height = 'auto';
     descRef.current.style.height = descRef.current.scrollHeight + 'px';
   }, [description]);
-  const [isSaving, startSavingTransition] = useTransition();
-  const [isCompleting, startCompleteTransition] = useTransition();
 
   const [revisionStarted, setRevisionStarted] = useState(false);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
@@ -84,24 +85,32 @@ export function QuestionDetailClient({
   }
 
   async function handleSave() {
-    startSavingTransition(async () => {
-      await updateQuestion(questionId, {
-        title,
-        linkUrl,
-        description,
-      });
-      setIsDirty(false);
-    });
+    const snapshot = { ...savedRef.current };
+    const next = { title, linkUrl, description };
+    savedRef.current = next;
+    setIsDirty(false);
+    const result = await updateQuestion(questionId, next);
+    if ('error' in result) {
+      savedRef.current = snapshot;
+      setTitle(snapshot.title);
+      setLinkUrl(snapshot.linkUrl);
+      setDescription(snapshot.description);
+      setIsDirty(true);
+      toast.show(`Could not save changes: ${result.error}`, 'error');
+    }
   }
 
   async function handleComplete() {
     if (!nextRevisionId) return;
-    startCompleteTransition(async () => {
-      await completeRevision(nextRevisionId);
-      setRevisionStarted(false);
-      setCountdownDone(false);
-      router.refresh();
-    });
+    const revisionId = nextRevisionId;
+    setRevisionStarted(false);
+    setCountdownDone(false);
+    const result = await completeRevision(revisionId);
+    if ('error' in result) {
+      toast.show(`Could not complete revision: ${result.error}`, 'error');
+      return;
+    }
+    router.refresh();
   }
 
   const canStartRevision = state === 'DueToday' || state === 'Missed';
@@ -162,15 +171,10 @@ export function QuestionDetailClient({
         {isDirty && (
           <button
             onClick={handleSave}
-            disabled={isSaving}
             className="w-full rounded-lg py-2 text-sm font-medium"
-            style={{
-              backgroundColor: '#111110',
-              color: '#FFFFFF',
-              opacity: isSaving ? 0.6 : 1,
-            }}
+            style={{ backgroundColor: '#111110', color: '#FFFFFF' }}
           >
-            {isSaving ? 'Saving…' : 'Save'}
+            Save
           </button>
         )}
       </div>
@@ -207,15 +211,10 @@ export function QuestionDetailClient({
           ) : (
             <button
               onClick={handleComplete}
-              disabled={isCompleting}
               className="w-full rounded-lg py-2.5 text-sm font-medium"
-              style={{
-                backgroundColor: 'oklch(0.62 0.12 150)',
-                color: '#FFFFFF',
-                opacity: isCompleting ? 0.6 : 1,
-              }}
+              style={{ backgroundColor: 'oklch(0.62 0.12 150)', color: '#FFFFFF' }}
             >
-              {isCompleting ? 'Completing…' : 'Complete Revision'}
+              Complete Revision
             </button>
           )}
         </div>

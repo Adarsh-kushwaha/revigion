@@ -5,9 +5,10 @@ import { Modal } from '@/components/modal';
 import { SubjectCard } from '@/components/subject-card';
 import { ProfileDropdown } from '@/components/profile-dropdown';
 import { AppHeader } from '@/components/app-header';
-import { createSubject, getHomeData } from '@/app/actions';
+import { createSubject, getHomeData, renameSubject, deleteSubject } from '@/app/actions';
 import type { SubjectData } from '@/app/actions';
 import { requestAndRegisterToken } from '@/lib/fcm-token';
+import { useToast } from '@/components/toast';
 
 const CACHE_TTL = 24 * 60 * 60 * 1000;
 
@@ -38,14 +39,6 @@ function writeCache(userId: string, subjects: SubjectData[]) {
     localStorage.setItem(cacheKey(userId), JSON.stringify(entry));
   } catch {
     // storage full or unavailable — ignore
-  }
-}
-
-function invalidateCache(userId: string) {
-  try {
-    localStorage.removeItem(cacheKey(userId));
-  } catch {
-    // ignore
   }
 }
 
@@ -263,6 +256,7 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
   const [subjectDesc, setSubjectDesc] = useState('');
   const [createError, setCreateError] = useState('');
   const [isPending, startTransition] = useTransition();
+  const toast = useToast();
 
   const fetchAndCache = useCallback(async () => {
     const result = await getHomeData();
@@ -300,21 +294,85 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
   }
 
   async function handleCreate() {
-    if (!subjectName.trim()) return;
+    const name = subjectName.trim();
+    const description = subjectDesc.trim();
+    if (!name) return;
     setCreateError('');
+
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: SubjectData = {
+      id: tempId,
+      name,
+      description,
+      questionCount: 0,
+      dueCount: 0,
+      missedCount: 0,
+    };
+
+    setSubjects((prev) => [optimistic, ...prev]);
+    setSubjectName('');
+    setSubjectDesc('');
+    setAddOpen(false);
+
     startTransition(async () => {
-      const result = await createSubject(subjectName.trim(), subjectDesc.trim());
+      const result = await createSubject(name, description);
       if ('error' in result) {
-        setCreateError(result.error);
+        setSubjects((prev) => prev.filter((s) => s.id !== tempId));
+        toast.show(`Could not add subject: ${result.error}`, 'error');
         return;
       }
-      setSubjectName('');
-      setSubjectDesc('');
-      setAddOpen(false);
-      invalidateCache(userId);
-      await fetchAndCache();
+      const realId = result.data.id;
+      setSubjects((prev) => {
+        const next = prev.map((s) => (s.id === tempId ? { ...s, id: realId } : s));
+        writeCache(userId, next);
+        return next;
+      });
     });
   }
+
+  const handleRename = useCallback(
+    async (id: string, newName: string) => {
+      let prevName = '';
+      setSubjects((prev) => {
+        const next = prev.map((s) => {
+          if (s.id !== id) return s;
+          prevName = s.name;
+          return { ...s, name: newName };
+        });
+        writeCache(userId, next);
+        return next;
+      });
+      const result = await renameSubject(id, newName);
+      if ('error' in result) {
+        setSubjects((prev) => {
+          const next = prev.map((s) => (s.id === id ? { ...s, name: prevName } : s));
+          writeCache(userId, next);
+          return next;
+        });
+        toast.show(`Could not rename subject: ${result.error}`, 'error');
+      }
+    },
+    [toast, userId],
+  );
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      let snapshot: SubjectData[] = [];
+      setSubjects((prev) => {
+        snapshot = prev;
+        const next = prev.filter((s) => s.id !== id);
+        writeCache(userId, next);
+        return next;
+      });
+      const result = await deleteSubject(id);
+      if ('error' in result) {
+        setSubjects(snapshot);
+        writeCache(userId, snapshot);
+        toast.show(`Could not delete subject: ${result.error}`, 'error');
+      }
+    },
+    [toast, userId],
+  );
 
   const totalActionable = subjects.reduce((acc, s) => acc + s.dueCount + s.missedCount, 0);
   const dueLabel = totalActionable > 0 ? `${totalActionable} due today` : 'nothing due';
@@ -395,7 +453,12 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
         ) : (
           <div className="flex flex-col gap-2">
             {subjects.map((s) => (
-              <SubjectCard key={s.id} {...s} />
+              <SubjectCard
+                key={s.id}
+                {...s}
+                onRename={handleRename}
+                onDelete={handleDelete}
+              />
             ))}
           </div>
         )}

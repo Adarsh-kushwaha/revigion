@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useTransition } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/modal';
-import { renameSubject, deleteSubject } from '@/app/actions';
 
 interface SubjectCardProps {
   id: string;
@@ -12,6 +11,8 @@ interface SubjectCardProps {
   questionCount: number;
   dueCount: number;
   missedCount: number;
+  onRename: (id: string, newName: string) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
 }
 
 export function SubjectCard({
@@ -21,13 +22,14 @@ export function SubjectCard({
   questionCount,
   dueCount,
   missedCount,
+  onRename,
+  onDelete,
 }: SubjectCardProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [newName, setNewName] = useState(name);
-  const [isPending, startTransition] = useTransition();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,19 +48,19 @@ export function SubjectCard({
     router.push(`/subjects/${id}`);
   }
 
-  async function handleRename() {
-    if (!newName.trim()) return;
-    startTransition(async () => {
-      await renameSubject(id, newName.trim());
+  function handleRename() {
+    const next = newName.trim();
+    if (!next || next === name) {
       setRenameOpen(false);
-    });
+      return;
+    }
+    setRenameOpen(false);
+    void onRename(id, next);
   }
 
-  async function handleDelete() {
-    startTransition(async () => {
-      await deleteSubject(id);
-      setDeleteOpen(false);
-    });
+  function handleDelete() {
+    setDeleteOpen(false);
+    void onDelete(id);
   }
 
   return (
@@ -168,11 +170,11 @@ export function SubjectCard({
           />
           <button
             onClick={handleRename}
-            disabled={isPending || !newName.trim()}
+            disabled={!newName.trim()}
             className="w-full rounded-lg py-2 text-sm font-medium"
-            style={{ backgroundColor: '#111110', color: '#FFFFFF', opacity: isPending ? 0.6 : 1 }}
+            style={{ backgroundColor: '#111110', color: '#FFFFFF' }}
           >
-            {isPending ? 'Saving…' : 'Save'}
+            Save
           </button>
         </div>
       </Modal>
@@ -184,11 +186,10 @@ export function SubjectCard({
           </p>
           <button
             onClick={handleDelete}
-            disabled={isPending}
             className="w-full rounded-lg py-2 text-sm font-medium"
-            style={{ backgroundColor: 'oklch(0.577 0.245 27.325)', color: '#FFFFFF', opacity: isPending ? 0.6 : 1 }}
+            style={{ backgroundColor: 'oklch(0.577 0.245 27.325)', color: '#FFFFFF' }}
           >
-            {isPending ? 'Deleting…' : 'Delete'}
+            Delete
           </button>
           <button
             onClick={() => setDeleteOpen(false)}
