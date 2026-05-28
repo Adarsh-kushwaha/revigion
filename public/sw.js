@@ -1,4 +1,4 @@
-const CACHE = 'revigion-static-v1';
+const CACHE = 'revigion-static-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -15,13 +15,31 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Cache-first for static assets (JS, CSS, fonts, images, icons)
+  if (request.method !== 'GET') return;
+
+  // Network-first for the manifest so theme/background changes propagate.
+  if (url.pathname === '/manifest.webmanifest') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Cache-first for immutable static assets (JS, CSS, fonts, icons, splash PNGs)
   const isStatic =
     url.pathname.startsWith('/_next/static/') ||
     url.pathname.startsWith('/icons/') ||
-    url.pathname === '/manifest.webmanifest';
+    url.pathname.startsWith('/splash/');
 
-  if (isStatic && request.method === 'GET') {
+  if (isStatic) {
     event.respondWith(
       caches.open(CACHE).then((cache) =>
         cache.match(request).then((cached) => {
