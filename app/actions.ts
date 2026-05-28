@@ -3,6 +3,67 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { nextDueDate } from '@/lib/scheduler';
+import { questionState } from '@/lib/question-state';
+
+export interface SubjectData {
+  id: string;
+  name: string;
+  description: string;
+  questionCount: number;
+  dueCount: number;
+  missedCount: number;
+}
+
+export interface HomeData {
+  subjects: SubjectData[];
+  email: string;
+}
+
+export async function getHomeData(): Promise<{ error: string } | { data: HomeData }> {
+  const result = await getSupabaseAndUser();
+  if (!result.ok) return { error: result.error };
+  const { supabase, user } = result;
+
+  const timezone = 'Asia/Calcutta';
+  const today = new Date();
+
+  const { data: subjects } = await supabase
+    .from('subjects')
+    .select('id, name, description, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  const subjectIds = subjects?.map((s) => s.id) ?? [];
+
+  const { data: questions } = subjectIds.length
+    ? await supabase
+        .from('questions')
+        .select('id, subject_id, revisions(index, due_date, completed_at)')
+        .in('subject_id', subjectIds)
+    : { data: [] };
+
+  const subjectData = (subjects ?? []).map((subject) => {
+    const qs = (questions ?? []).filter((q) => q.subject_id === subject.id);
+    let dueCount = 0;
+    let missedCount = 0;
+    for (const q of qs) {
+      const revs = (q.revisions ?? []) as { index: number; due_date: string | null; completed_at: string | null }[];
+      const state = questionState({ revisions: revs, today, userTimezone: timezone });
+      if (state === 'DueToday') dueCount++;
+      if (state === 'Missed') missedCount++;
+    }
+    return {
+      id: subject.id,
+      name: subject.name,
+      description: subject.description ?? '',
+      questionCount: qs.length,
+      dueCount,
+      missedCount,
+    };
+  });
+
+  return { data: { subjects: subjectData, email: user.email ?? '' } };
+}
 
 type AuthResult =
   | { ok: false; error: string }

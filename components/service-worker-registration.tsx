@@ -25,6 +25,9 @@ export function ServiceWorkerRegistration() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
+    // Register app shell caching SW
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+
     // Register the Firebase messaging SW
     navigator.serviceWorker
       .register('/firebase-messaging-sw.js', { scope: '/' })

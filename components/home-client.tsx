@@ -1,27 +1,52 @@
 'use client';
 
-import { useState, useTransition, useEffect, useRef } from 'react';
+import { useState, useTransition, useEffect, useRef, useCallback } from 'react';
 import { Modal } from '@/components/modal';
 import { SubjectCard } from '@/components/subject-card';
 import { ProfileDropdown } from '@/components/profile-dropdown';
 import { AppHeader } from '@/components/app-header';
-import { createSubject } from '@/app/actions';
+import { createSubject, getHomeData } from '@/app/actions';
+import type { SubjectData } from '@/app/actions';
 import { requestAndRegisterToken } from '@/lib/fcm-token';
 
-interface SubjectData {
-  id: string;
-  name: string;
-  description: string;
-  questionCount: number;
-  dueCount: number;
-  missedCount: number;
+const CACHE_TTL = 24 * 60 * 60 * 1000;
+
+interface CacheEntry {
+  subjects: SubjectData[];
+  fetchedAt: number;
 }
 
-interface HomeClientProps {
-  subjects: SubjectData[];
-  email: string;
-  subjectCount: number;
-  dueLabel: string;
+function cacheKey(userId: string) {
+  return `home-data-v1-${userId}`;
+}
+
+function readCache(userId: string): CacheEntry | null {
+  try {
+    const raw = localStorage.getItem(cacheKey(userId));
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as CacheEntry;
+    if (Date.now() - entry.fetchedAt > CACHE_TTL) return null;
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(userId: string, subjects: SubjectData[]) {
+  try {
+    const entry: CacheEntry = { subjects, fetchedAt: Date.now() };
+    localStorage.setItem(cacheKey(userId), JSON.stringify(entry));
+  } catch {
+    // storage full or unavailable — ignore
+  }
+}
+
+function invalidateCache(userId: string) {
+  try {
+    localStorage.removeItem(cacheKey(userId));
+  } catch {
+    // ignore
+  }
 }
 
 // ─── Notification Banner ─────────────────────────────────────────────────────
@@ -76,7 +101,6 @@ function NotificationBanner() {
     return () => window.removeEventListener('appinstalled', handleAppInstalled);
   }, []);
 
-  // Close popover when clicking outside
   useEffect(() => {
     if (!showIosPopover) return;
     function handleClick(e: MouseEvent) {
@@ -122,7 +146,6 @@ function NotificationBanner() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        {/* Bell icon */}
         <span style={{ fontSize: '18px', flexShrink: 0 }} aria-hidden="true">🔔</span>
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -203,7 +226,6 @@ function NotificationBanner() {
           )}
         </div>
 
-        {/* Dismiss */}
         <button
           aria-label="Dismiss notification banner"
           onClick={dismiss}
@@ -227,12 +249,49 @@ function NotificationBanner() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function HomeClient({ subjects, email, subjectCount, dueLabel }: HomeClientProps) {
+interface HomeClientProps {
+  userId: string;
+  email: string;
+}
+
+export function HomeClient({ userId, email }: HomeClientProps) {
+  const [subjects, setSubjects] = useState<SubjectData[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [subjectName, setSubjectName] = useState('');
   const [subjectDesc, setSubjectDesc] = useState('');
   const [createError, setCreateError] = useState('');
   const [isPending, startTransition] = useTransition();
+
+  const fetchAndCache = useCallback(async () => {
+    const result = await getHomeData();
+    if ('data' in result) {
+      setSubjects(result.data.subjects);
+      writeCache(userId, result.data.subjects);
+    }
+    return result;
+  }, [userId]);
+
+  useEffect(() => {
+    const cached = readCache(userId);
+    if (cached) {
+      setSubjects(cached.subjects);
+      window.dispatchEvent(new Event('app-ready'));
+    } else {
+      fetchAndCache().then(() => {
+        window.dispatchEvent(new Event('app-ready'));
+      });
+    }
+  }, [userId, fetchAndCache]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await fetchAndCache();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function handleCreate() {
     if (!subjectName.trim()) return;
@@ -246,12 +305,16 @@ export function HomeClient({ subjects, email, subjectCount, dueLabel }: HomeClie
       setSubjectName('');
       setSubjectDesc('');
       setAddOpen(false);
+      invalidateCache(userId);
+      await fetchAndCache();
     });
   }
 
+  const totalActionable = subjects.reduce((acc, s) => acc + s.dueCount + s.missedCount, 0);
+  const dueLabel = totalActionable > 0 ? `${totalActionable} due today` : 'nothing due';
+
   return (
     <>
-      {/* TopBar */}
       <AppHeader
         left={
           <span
@@ -263,6 +326,35 @@ export function HomeClient({ subjects, email, subjectCount, dueLabel }: HomeClie
         }
         right={
           <>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="w-8 h-8 flex items-center justify-center rounded-full"
+              style={{
+                backgroundColor: 'transparent',
+                color: '#9C9B95',
+                border: '1px solid rgba(17,17,16,0.14)',
+                opacity: refreshing ? 0.5 : 1,
+              }}
+              aria-label="Refresh"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }}
+              >
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                <path d="M8 16H3v5" />
+              </svg>
+            </button>
             <button
               onClick={() => setAddOpen(true)}
               className="w-8 h-8 flex items-center justify-center rounded-full"
@@ -278,18 +370,16 @@ export function HomeClient({ subjects, email, subjectCount, dueLabel }: HomeClie
         }
       />
 
-      {/* Content */}
       <main className="flex-1 flex flex-col px-4 py-5 gap-4">
         <div>
           <h1 className="text-[28px] font-semibold leading-tight" style={{ color: '#111110' }}>
             Subjects
           </h1>
           <p className="text-sm mt-0.5" style={{ color: '#6B6A65' }}>
-            {subjectCount} {subjectCount === 1 ? 'subject' : 'subjects'} · {dueLabel}
+            {subjects.length} {subjects.length === 1 ? 'subject' : 'subjects'} · {dueLabel}
           </p>
         </div>
 
-        {/* Notification banner — shown above subject list */}
         <NotificationBanner />
 
         {subjects.length === 0 ? (
@@ -305,7 +395,6 @@ export function HomeClient({ subjects, email, subjectCount, dueLabel }: HomeClie
         )}
       </main>
 
-      {/* Add Subject Modal */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="New subject">
         <div className="flex flex-col gap-3">
           <div>
@@ -359,6 +448,10 @@ export function HomeClient({ subjects, email, subjectCount, dueLabel }: HomeClie
           </button>
         </div>
       </Modal>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </>
   );
 }
