@@ -127,7 +127,7 @@ export function SubjectCard({
                 onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setRenameOpen(true); }}
                 className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2"
                 style={{ color: '#111110' }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#F5F5F1')}
+                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#F4F1EA')}
                 onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

@@ -54,7 +54,7 @@ export default function QuestionLoading() {
           <div
             className="rounded-xl p-4 flex flex-col gap-3"
             style={{
-              backgroundColor: '#F5F5F1',
+              backgroundColor: '#F4F1EA',
               border: '1px solid rgba(17,17,16,0.08)',
             }}
           >

@@ -1,39 +1,78 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Modal } from '@/components/modal';
 import { QuestionCard } from '@/components/question-card';
 import { AppHeader } from '@/components/app-header';
-import { createQuestion, deleteQuestion } from '@/app/actions';
+import {
+  createQuestion,
+  deleteQuestion,
+  getSubjectDetailData,
+  type SubjectDetailData,
+  type SubjectQuestionEntry,
+} from '@/app/actions';
 import { useToast } from '@/components/toast';
-import type { QuestionState } from '@/lib/question-state';
+import { cacheKeys, clearCache, invalidateAll, isHardReload, readCache, writeCache } from '@/lib/client-cache';
 
-export interface QuestionEntry {
-  id: string;
-  title: string;
-  created_at: string;
-  revisions: { index: number; due_date: string | null; completed_at: string | null }[];
-  state: QuestionState;
-}
+export type QuestionEntry = SubjectQuestionEntry;
 
 interface SubjectDetailClientProps {
+  userId: string;
   subjectId: string;
-  subjectName: string;
-  initialQuestions: QuestionEntry[];
 }
 
-export function SubjectDetailClient({
-  subjectId,
-  subjectName,
-  initialQuestions,
-}: SubjectDetailClientProps) {
-  const [questions, setQuestions] = useState<QuestionEntry[]>(initialQuestions);
+export function SubjectDetailClient({ userId, subjectId }: SubjectDetailClientProps) {
+  const [data, setData] = useState<SubjectDetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [description, setDescription] = useState('');
   const toast = useToast();
+
+  const cacheKey = cacheKeys.subject(userId, subjectId);
+
+  const fetchAndCache = useCallback(async () => {
+    const result = await getSubjectDetailData(subjectId);
+    if ('data' in result) {
+      setData(result.data);
+      writeCache(cacheKey, result.data);
+    }
+  }, [subjectId, cacheKey]);
+
+  useEffect(() => {
+    if (isHardReload()) {
+      clearCache(cacheKey);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchAndCache().finally(() => {
+        setLoading(false);
+        window.dispatchEvent(new Event('app-ready'));
+      });
+      return;
+    }
+    const cached = readCache<SubjectDetailData>(cacheKey);
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      window.dispatchEvent(new Event('app-ready'));
+    } else {
+      fetchAndCache().finally(() => {
+        setLoading(false);
+        window.dispatchEvent(new Event('app-ready'));
+      });
+    }
+  }, [cacheKey, fetchAndCache]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await fetchAndCache();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const handleCreate = useCallback(async () => {
     const t = title.trim();
@@ -42,7 +81,7 @@ export function SubjectDetailClient({
     const desc = description.trim();
     const tempId = `temp-${Date.now()}`;
     const now = new Date().toISOString();
-    const optimistic: QuestionEntry = {
+    const optimistic: SubjectQuestionEntry = {
       id: tempId,
       title: t,
       created_at: now,
@@ -56,7 +95,9 @@ export function SubjectDetailClient({
       state: 'Normal',
     };
 
-    setQuestions((prev) => [optimistic, ...prev]);
+    setData((prev) =>
+      prev ? { ...prev, questions: [optimistic, ...prev.questions] } : prev,
+    );
     setTitle('');
     setLinkUrl('');
     setDescription('');
@@ -64,29 +105,47 @@ export function SubjectDetailClient({
 
     const result = await createQuestion(subjectId, t, link, desc);
     if ('error' in result) {
-      setQuestions((prev) => prev.filter((q) => q.id !== tempId));
+      setData((prev) =>
+        prev ? { ...prev, questions: prev.questions.filter((q) => q.id !== tempId) } : prev,
+      );
       toast.show(`Could not add question: ${result.error}`, 'error');
       return;
     }
     const realId = result.data.id;
-    setQuestions((prev) => prev.map((q) => (q.id === tempId ? { ...q, id: realId } : q)));
-  }, [title, linkUrl, description, subjectId, toast]);
+    setData((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        questions: prev.questions.map((q) => (q.id === tempId ? { ...q, id: realId } : q)),
+      };
+      return next;
+    });
+    invalidateAll();
+    await fetchAndCache();
+  }, [title, linkUrl, description, subjectId, toast, fetchAndCache]);
 
   const handleDelete = useCallback(
     async (id: string) => {
-      let snapshot: QuestionEntry[] = [];
-      setQuestions((prev) => {
-        snapshot = prev;
-        return prev.filter((q) => q.id !== id);
+      let snapshot: SubjectQuestionEntry[] = [];
+      setData((prev) => {
+        if (!prev) return prev;
+        snapshot = prev.questions;
+        return { ...prev, questions: prev.questions.filter((q) => q.id !== id) };
       });
       const result = await deleteQuestion(id);
       if ('error' in result) {
-        setQuestions(snapshot);
+        setData((prev) => (prev ? { ...prev, questions: snapshot } : prev));
         toast.show(`Could not delete question: ${result.error}`, 'error');
+        return;
       }
+      invalidateAll();
+      await fetchAndCache();
     },
-    [toast],
+    [toast, fetchAndCache],
   );
+
+  const questions = data?.questions ?? [];
+  const subjectName = data?.subjectName ?? '';
 
   return (
     <>
@@ -94,7 +153,7 @@ export function SubjectDetailClient({
         left={
           <div className="flex items-center gap-1 -ml-1">
             <Link
-              href="/"
+              href="/subjects"
               className="w-8 h-8 flex items-center justify-center rounded-lg"
               style={{ color: '#111110' }}
               aria-label="Back"
@@ -112,48 +171,85 @@ export function SubjectDetailClient({
           </div>
         }
         right={
-          <button
-            onClick={() => setAddOpen(true)}
-            className="w-8 h-8 flex items-center justify-center rounded-full"
-            style={{ backgroundColor: '#111110', color: '#FFFFFF' }}
-            aria-label="Add question"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing || loading}
+              className="w-8 h-8 flex items-center justify-center rounded-full"
+              style={{
+                backgroundColor: 'transparent',
+                color: '#9C9B95',
+                border: '1px solid rgba(17,17,16,0.14)',
+                opacity: refreshing || loading ? 0.5 : 1,
+              }}
+              aria-label="Refresh"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }}
+              >
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                <path d="M8 16H3v5" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="w-8 h-8 flex items-center justify-center rounded-full"
+              style={{ backgroundColor: '#111110', color: '#FFFFFF' }}
+              aria-label="Add question"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          </div>
         }
       />
 
-      <div className="px-4 pt-5 pb-3">
-        <h1 className="text-[28px] font-semibold leading-tight" style={{ color: '#111110' }}>
-          {subjectName}
-        </h1>
-        <p className="text-sm mt-0.5" style={{ color: '#6B6A65' }}>
-          {questions.length} {questions.length === 1 ? 'question' : 'questions'}
-        </p>
-      </div>
+      {loading ? (
+        <SubjectShimmer />
+      ) : (
+        <>
+          <div className="px-4 pt-5 pb-3">
+            <h1 className="text-[28px] font-semibold leading-tight" style={{ color: '#111110' }}>
+              {subjectName}
+            </h1>
+            <p className="text-sm mt-0.5" style={{ color: '#6B6A65' }}>
+              {questions.length} {questions.length === 1 ? 'question' : 'questions'}
+            </p>
+          </div>
 
-      <main className="flex-1 flex flex-col px-4 pb-6 gap-2">
-        {questions.length === 0 ? (
-          <p className="text-sm text-center py-8" style={{ color: '#9C9B95' }}>
-            No questions yet. Tap + to add one.
-          </p>
-        ) : (
-          questions.map((q) => (
-            <QuestionCard
-              key={q.id}
-              id={q.id}
-              subjectId={subjectId}
-              title={q.title}
-              createdAt={q.created_at}
-              revisions={q.revisions.map((r) => ({ index: r.index, completed_at: r.completed_at }))}
-              state={q.state}
-              onDelete={handleDelete}
-            />
-          ))
-        )}
-      </main>
+          <main className="flex-1 flex flex-col px-4 pb-6 gap-2">
+            {questions.length === 0 ? (
+              <p className="text-sm text-center py-8" style={{ color: '#9C9B95' }}>
+                No questions yet. Tap + to add one.
+              </p>
+            ) : (
+              questions.map((q) => (
+                <QuestionCard
+                  key={q.id}
+                  id={q.id}
+                  subjectId={subjectId}
+                  title={q.title}
+                  createdAt={q.created_at}
+                  revisions={q.revisions.map((r) => ({ index: r.index, completed_at: r.completed_at }))}
+                  state={q.state}
+                  onDelete={handleDelete}
+                />
+              ))
+            )}
+          </main>
+        </>
+      )}
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="New question">
         <div className="flex flex-col gap-3">
@@ -219,6 +315,47 @@ export function SubjectDetailClient({
           </button>
         </div>
       </Modal>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+    </>
+  );
+}
+
+function SubjectShimmer() {
+  return (
+    <>
+      <div className="px-4 pt-5 pb-3">
+        <div className="sk" style={{ width: '160px', height: '28px', borderRadius: '8px' }} />
+        <div className="sk" style={{ width: '80px', height: '12px', marginTop: '8px' }} />
+      </div>
+      <main className="flex-1 flex flex-col px-4 pb-6 gap-2">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="rounded-xl px-4 py-3"
+            style={{ backgroundColor: 'transparent', border: '1px solid rgba(17,17,16,0.08)' }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="sk" style={{ width: '144px', height: '14px' }} />
+                <div className="sk" style={{ width: '56px', height: '10px', marginTop: '6px' }} />
+              </div>
+              <div className="flex items-center gap-1.5">
+                {[0, 1, 2, 3, 4].map((j) => (
+                  <div
+                    key={j}
+                    className="sk"
+                    style={{ width: '20px', height: '20px', borderRadius: '50%' }}
+                  />
+                ))}
+                <div className="sk ml-1" style={{ width: '28px', height: '28px', borderRadius: '8px' }} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </main>
     </>
   );
 }

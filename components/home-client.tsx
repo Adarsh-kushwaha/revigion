@@ -9,37 +9,14 @@ import { createSubject, getHomeData, renameSubject, deleteSubject } from '@/app/
 import type { SubjectData } from '@/app/actions';
 import { requestAndRegisterToken } from '@/lib/fcm-token';
 import { useToast } from '@/components/toast';
+import { cacheKeys, clearCache, isHardReload, readCache, writeCache } from '@/lib/client-cache';
 
-const CACHE_TTL = 24 * 60 * 60 * 1000;
-
-interface CacheEntry {
-  subjects: SubjectData[];
-  fetchedAt: number;
+function readSubjectsCache(userId: string): SubjectData[] | null {
+  return readCache<SubjectData[]>(cacheKeys.home(userId));
 }
 
-function cacheKey(userId: string) {
-  return `home-data-v1-${userId}`;
-}
-
-function readCache(userId: string): CacheEntry | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(userId));
-    if (!raw) return null;
-    const entry = JSON.parse(raw) as CacheEntry;
-    if (Date.now() - entry.fetchedAt > CACHE_TTL) return null;
-    return entry;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(userId: string, subjects: SubjectData[]) {
-  try {
-    const entry: CacheEntry = { subjects, fetchedAt: Date.now() };
-    localStorage.setItem(cacheKey(userId), JSON.stringify(entry));
-  } catch {
-    // storage full or unavailable — ignore
-  }
+function writeSubjectsCache(userId: string, subjects: SubjectData[]) {
+  writeCache(cacheKeys.home(userId), subjects);
 }
 
 // ─── Notification Banner ─────────────────────────────────────────────────────
@@ -245,11 +222,11 @@ function NotificationBanner() {
 interface HomeClientProps {
   userId: string;
   email: string;
-  initialSubjects?: SubjectData[];
 }
 
-export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) {
-  const [subjects, setSubjects] = useState<SubjectData[]>(initialSubjects ?? []);
+export function HomeClient({ userId, email }: HomeClientProps) {
+  const [subjects, setSubjects] = useState<SubjectData[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [subjectName, setSubjectName] = useState('');
@@ -262,27 +239,34 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
     const result = await getHomeData();
     if ('data' in result) {
       setSubjects(result.data.subjects);
-      writeCache(userId, result.data.subjects);
+      writeSubjectsCache(userId, result.data.subjects);
     }
     return result;
   }, [userId]);
 
   useEffect(() => {
-    if (initialSubjects) {
-      writeCache(userId, initialSubjects);
-      window.dispatchEvent(new Event('app-ready'));
+    if (isHardReload()) {
+      clearCache(cacheKeys.home(userId));
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchAndCache().finally(() => {
+        setLoading(false);
+        window.dispatchEvent(new Event('app-ready'));
+      });
       return;
     }
-    const cached = readCache(userId);
+    const cached = readSubjectsCache(userId);
     if (cached) {
-      setSubjects(cached.subjects);
+      setSubjects(cached);
+      setLoading(false);
       window.dispatchEvent(new Event('app-ready'));
     } else {
-      fetchAndCache().then(() => {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchAndCache().finally(() => {
+        setLoading(false);
         window.dispatchEvent(new Event('app-ready'));
       });
     }
-  }, [userId, fetchAndCache, initialSubjects]);
+  }, [userId, fetchAndCache]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -324,9 +308,10 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
       const realId = result.data.id;
       setSubjects((prev) => {
         const next = prev.map((s) => (s.id === tempId ? { ...s, id: realId } : s));
-        writeCache(userId, next);
+        writeSubjectsCache(userId, next);
         return next;
       });
+      clearCache(cacheKeys.dashboard(userId));
     });
   }
 
@@ -339,14 +324,14 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
           prevName = s.name;
           return { ...s, name: newName };
         });
-        writeCache(userId, next);
+        writeSubjectsCache(userId, next);
         return next;
       });
       const result = await renameSubject(id, newName);
       if ('error' in result) {
         setSubjects((prev) => {
           const next = prev.map((s) => (s.id === id ? { ...s, name: prevName } : s));
-          writeCache(userId, next);
+          writeSubjectsCache(userId, next);
           return next;
         });
         toast.show(`Could not rename subject: ${result.error}`, 'error');
@@ -361,15 +346,17 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
       setSubjects((prev) => {
         snapshot = prev;
         const next = prev.filter((s) => s.id !== id);
-        writeCache(userId, next);
+        writeSubjectsCache(userId, next);
         return next;
       });
       const result = await deleteSubject(id);
       if ('error' in result) {
         setSubjects(snapshot);
-        writeCache(userId, snapshot);
+        writeSubjectsCache(userId, snapshot);
         toast.show(`Could not delete subject: ${result.error}`, 'error');
+        return;
       }
+      clearCache(cacheKeys.dashboard(userId));
     },
     [toast, userId],
   );
@@ -435,32 +422,38 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
       />
 
       <main className="flex-1 flex flex-col px-4 py-5 gap-4">
-        <div>
-          <h1 className="text-[28px] font-semibold leading-tight" style={{ color: '#111110' }}>
-            Subjects
-          </h1>
-          <p className="text-sm mt-0.5" style={{ color: '#6B6A65' }}>
-            {subjects.length} {subjects.length === 1 ? 'subject' : 'subjects'} · {dueLabel}
-          </p>
-        </div>
-
-        <NotificationBanner />
-
-        {subjects.length === 0 ? (
-          <p className="text-sm text-center py-8" style={{ color: '#9C9B95' }}>
-            No subjects yet. Tap + to add one.
-          </p>
+        {loading ? (
+          <HomeShimmer />
         ) : (
-          <div className="flex flex-col gap-2">
-            {subjects.map((s) => (
-              <SubjectCard
-                key={s.id}
-                {...s}
-                onRename={handleRename}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
+          <>
+            <div>
+              <h1 className="text-[28px] font-semibold leading-tight" style={{ color: '#111110' }}>
+                Subjects
+              </h1>
+              <p className="text-sm mt-0.5" style={{ color: '#6B6A65' }}>
+                {subjects.length} {subjects.length === 1 ? 'subject' : 'subjects'} · {dueLabel}
+              </p>
+            </div>
+
+            <NotificationBanner />
+
+            {subjects.length === 0 ? (
+              <p className="text-sm text-center py-8" style={{ color: '#9C9B95' }}>
+                No subjects yet. Tap + to add one.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {subjects.map((s) => (
+                  <SubjectCard
+                    key={s.id}
+                    {...s}
+                    onRename={handleRename}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -521,6 +514,34 @@ export function HomeClient({ userId, email, initialSubjects }: HomeClientProps) 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
+    </>
+  );
+}
+
+function HomeShimmer() {
+  return (
+    <>
+      <div>
+        <div className="sk" style={{ width: '140px', height: '28px', borderRadius: '8px' }} />
+        <div className="sk" style={{ width: '180px', height: '12px', marginTop: '8px' }} />
+      </div>
+      <div className="flex flex-col gap-2">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="rounded-xl px-4 py-3"
+            style={{ backgroundColor: '#FFFFFF', border: '1px solid rgba(17,17,16,0.08)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <div className="sk" style={{ width: '128px', height: '14px' }} />
+                <div className="sk" style={{ width: '64px', height: '10px', marginTop: '6px' }} />
+              </div>
+              <div className="sk" style={{ width: '36px', height: '20px', borderRadius: '999px' }} />
+            </div>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

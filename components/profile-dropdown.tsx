@@ -67,7 +67,7 @@ export function ProfileDropdown({ email }: ProfileDropdownProps) {
               className="w-full text-sm text-left rounded-lg px-2 py-1.5 transition-colors"
               style={{ color: "#111110" }}
               onMouseOver={(e) =>
-                (e.currentTarget.style.backgroundColor = "#F5F5F1")
+                (e.currentTarget.style.backgroundColor = "#F4F1EA")
               }
               onMouseOut={(e) =>
                 (e.currentTarget.style.backgroundColor = "transparent")

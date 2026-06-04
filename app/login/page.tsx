@@ -49,7 +49,7 @@ export default function LoginPage() {
             border: "1px solid rgba(17,17,16,0.14)",
           }}
           onMouseOver={(e) =>
-            (e.currentTarget.style.backgroundColor = "#F5F5F1")
+            (e.currentTarget.style.backgroundColor = "#F4F1EA")
           }
           onMouseOut={(e) =>
             (e.currentTarget.style.backgroundColor = "#FFFFFF")

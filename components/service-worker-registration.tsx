@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { onMessage } from 'firebase/messaging';
-import { getFirebaseMessaging } from '@/lib/firebase/client';
 
 interface ForegroundToast {
   title: string;
@@ -25,37 +23,52 @@ export function ServiceWorkerRegistration() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
-    // Register app shell caching SW
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    // Register both service workers in parallel — neither needs to wait for the other.
+    Promise.all([
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }),
+      navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' }),
+    ]).catch((err) => {
+      console.error('[SW] Registration failed:', err);
+    });
 
-    // Register the Firebase messaging SW
-    navigator.serviceWorker
-      .register('/firebase-messaging-sw.js', { scope: '/' })
-      .then(async (registration) => {
-        console.log('[SW] Registered:', registration.scope);
-
-        // Set up foreground message handler after SW is ready
-        const messaging = await getFirebaseMessaging();
-        if (!messaging) return;
-
-        onMessage(messaging, (payload) => {
-          const title = payload.notification?.title ?? 'Revigion';
-          const body = payload.notification?.body ?? 'Time to revise';
-          const deepLink = payload.data?.deep_link;
-
-          setToast({ title, body, deepLink });
-
-          // Auto-dismiss after 5 seconds
-          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-          dismissTimer.current = setTimeout(() => setToast(null), 5000);
-        });
-      })
-      .catch((err) => {
-        console.error('[SW] Registration failed:', err);
+    // Defer Firebase messaging init until the main thread is idle so the
+    // ~80KB Firebase chunk stays off the hydration critical path.
+    const initMessaging = async () => {
+      // Dynamic imports keep the Firebase SDK out of the main client bundle —
+      // it loads only after the main thread reports idle.
+      const [{ onMessage }, { getFirebaseMessaging }] = await Promise.all([
+        import('firebase/messaging'),
+        import('@/lib/firebase/client'),
+      ]);
+      const messaging = await getFirebaseMessaging();
+      if (!messaging) return;
+      onMessage(messaging, (payload) => {
+        const title = payload.notification?.title ?? 'Revigion';
+        const body = payload.notification?.body ?? 'Time to revise';
+        const deepLink = payload.data?.deep_link;
+        setToast({ title, body, deepLink });
+        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        dismissTimer.current = setTimeout(() => setToast(null), 5000);
       });
+    };
+
+    type IdleWindow = Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const w = window as IdleWindow;
+    let idleHandle: number | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    if (typeof w.requestIdleCallback === 'function') {
+      idleHandle = w.requestIdleCallback(() => { void initMessaging(); }, { timeout: 3000 });
+    } else {
+      timeoutHandle = setTimeout(() => { void initMessaging(); }, 2000);
+    }
 
     return () => {
       if (dismissTimer.current) clearTimeout(dismissTimer.current);
+      if (idleHandle !== null && typeof w.cancelIdleCallback === 'function') w.cancelIdleCallback(idleHandle);
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle);
     };
   }, []);
 
