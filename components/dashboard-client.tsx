@@ -84,7 +84,6 @@ export function DashboardClient({ userId, name, email, avatarUrl }: DashboardCli
       setLoading(false);
       window.dispatchEvent(new Event('app-ready'));
     } else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchAndCache().finally(() => {
         setLoading(false);
         window.dispatchEvent(new Event('app-ready'));

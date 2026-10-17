@@ -44,7 +44,8 @@ export function QuestionDetailClient({ userId, subjectId, questionId }: Question
 
   const [revisionStarted, setRevisionStarted] = useState(false);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
-  const [countdownDone, setCountdownDone] = useState(false);
+  // Derived, not stored: avoids a setState-in-effect cascade when the timer hits zero.
+  const countdownDone = revisionStarted && countdown <= 0;
 
   const applyData = useCallback((d: QuestionDetailData) => {
     setData(d);
@@ -79,7 +80,6 @@ export function QuestionDetailClient({ userId, subjectId, questionId }: Question
       setLoading(false);
       window.dispatchEvent(new Event('app-ready'));
     } else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchAndCache().finally(() => {
         setLoading(false);
         window.dispatchEvent(new Event('app-ready'));
@@ -95,13 +95,9 @@ export function QuestionDetailClient({ userId, subjectId, questionId }: Question
 
   useEffect(() => {
     if (!revisionStarted || countdownDone) return;
-    if (countdown <= 0) {
-      setCountdownDone(true);
-      return;
-    }
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [revisionStarted, countdown, countdownDone]);
+  }, [revisionStarted, countdownDone, countdown]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -119,7 +115,6 @@ export function QuestionDetailClient({ userId, subjectId, questionId }: Question
   function handleStartRevision() {
     setRevisionStarted(true);
     setCountdown(COUNTDOWN_SECONDS);
-    setCountdownDone(false);
   }
 
   async function handleSave() {
@@ -149,7 +144,6 @@ export function QuestionDetailClient({ userId, subjectId, questionId }: Question
     const revisionId = data?.nextRevisionId;
     if (!revisionId) return;
     setRevisionStarted(false);
-    setCountdownDone(false);
     const result = await completeRevision(revisionId);
     if ('error' in result) {
       toast.show(`Could not complete revision: ${result.error}`, 'error');

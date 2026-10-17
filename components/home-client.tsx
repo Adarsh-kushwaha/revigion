@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useEffect, useRef, useCallback } from 'react';
+import { useState, useTransition, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { Modal } from '@/components/modal';
 import { SubjectCard } from '@/components/subject-card';
 import { ProfileDropdown } from '@/components/profile-dropdown';
@@ -39,29 +39,37 @@ async function sendWelcomeNotification() {
   }
 }
 
+const noopSubscribe = () => () => {};
+
+/** false during SSR and the hydration pass, true afterwards — no setState-in-effect needed. */
+function useHydrated() {
+  return useSyncExternalStore(noopSubscribe, () => true, () => false);
+}
+
 function NotificationBanner() {
-  const [visible, setVisible] = useState(false);
-  const [isIos, setIsIos] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
+  const hydrated = useHydrated();
+  const [hidden, setHidden] = useState(false);
   const [showIosPopover, setShowIosPopover] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  // Browser-only values are read during render once hydrated. Feature-detect
+  // `Notification` before touching it: iOS Safari outside a home-screen app has no
+  // Notification global, and reading `Notification.permission` there throws.
+  const supported = hydrated && 'Notification' in window;
+  const eligible =
+    supported &&
+    sessionStorage.getItem('notif_dismissed') !== '1' &&
+    Notification.permission !== 'granted';
+  const visible = eligible && !hidden;
+  const isIos = hydrated && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isStandalone =
+    hydrated &&
+    ((window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
+      window.matchMedia('(display-mode: standalone)').matches);
+
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const dismissed = sessionStorage.getItem('notif_dismissed') === '1';
-    const alreadyGranted = Notification.permission === 'granted';
-
-    setVisible(!dismissed && !alreadyGranted && 'Notification' in window);
-
-    const ua = navigator.userAgent;
-    const ios = /iPad|iPhone|iPod/.test(ua);
-    const standalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true
-      || window.matchMedia('(display-mode: standalone)').matches;
-    setIsIos(ios);
-    setIsStandalone(standalone);
-
+    if (!('Notification' in window)) return;
     function handleAppInstalled() {
       if (Notification.permission === 'granted') {
         sendWelcomeNotification();
@@ -86,7 +94,7 @@ function NotificationBanner() {
 
   function dismiss() {
     sessionStorage.setItem('notif_dismissed', '1');
-    setVisible(false);
+    setHidden(true);
   }
 
   async function handleEnable() {
@@ -94,7 +102,7 @@ function NotificationBanner() {
     try {
       const token = await requestAndRegisterToken();
       if (token || Notification.permission === 'granted') {
-        setVisible(false);
+        setHidden(true);
         sendWelcomeNotification();
       }
     } finally {
@@ -260,7 +268,6 @@ export function HomeClient({ userId, email }: HomeClientProps) {
       setLoading(false);
       window.dispatchEvent(new Event('app-ready'));
     } else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchAndCache().finally(() => {
         setLoading(false);
         window.dispatchEvent(new Event('app-ready'));
